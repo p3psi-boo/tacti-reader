@@ -5,6 +5,7 @@ import json
 import os
 import hashlib
 import zipfile
+import subprocess
 
 
 import markdown
@@ -13,7 +14,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QMenuBar, QAction, QInputDialog, QMessageBox, QPushButton,
     QColorDialog, QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QTextEdit, 
     QDialogButtonBox, QToolBar, QComboBox, QTextEdit, QScrollArea,
-    QListWidget, QListWidgetItem, QGroupBox, QSplitter, QAbstractItemView,QTextBrowser,QTreeWidget,QTreeWidgetItem
+    QListWidget, QListWidgetItem, QGroupBox, QSplitter, QAbstractItemView,QTextBrowser,QTreeWidget,QTreeWidgetItem,QTabBar, QMenu
 )
 from PyQt5.QtCore import Qt, QMimeData, QPointF,QEvent, QPoint, QRect, QRectF, pyqtSignal, pyqtSlot,QUrl,QTimer,QSize
 from PyQt5.QtGui import (
@@ -1545,6 +1546,9 @@ class TactiReader(QMainWindow):
                 "Notebook imported from: {}": "笔记已从 {} 导入",
                 "Failed to import notebook": "笔记导入失败",
                 "Notebook saved.": "笔记已保存。",
+                            # === 多文档功能 ===
+                "Open in New Window": "在新窗口中打开",
+            # =================
             }
         }
         
@@ -1573,6 +1577,19 @@ class TactiReader(QMainWindow):
                     self.recent_files = [f for f in loaded_recent if os.path.isfile(f)]
             except Exception as e:
                 print(f"Failed to load recent files: {e}")
+        # === 初始化全局打开文档列表 ===
+        self.open_documents = []
+        if os.path.exists(GLOBAL_CONFIG_FILE):
+            try:
+                with open(GLOBAL_CONFIG_FILE, 'r') as f:
+                    global_data = json.load(f)
+                    global_config = global_data.get("global_config", {})
+                    # 加载已打开文档（过滤掉不存在的）
+                    loaded_open_docs = global_config.get("open_documents", [])
+                    self.open_documents = [f for f in loaded_open_docs if os.path.isfile(f) and (f.lower().endswith('.pdf') or f.lower().endswith('.tactinote'))]
+            except Exception as e:
+                print(f"Failed to load open documents: {e}")
+        # ==============================                
         # === NEW CODE END ===
 
         # 2. 初始化核心变量
@@ -1639,11 +1656,73 @@ class TactiReader(QMainWindow):
         self.splitter.addWidget(self.left_pane)
         self.splitter.addWidget(self.right_pane)
         self.splitter.setHandleWidth(6)  # 分隔条宽度
-
-        # 设置初始比例 (例如 4:6)
         self.splitter.setSizes([500, 500])
 
-        main_layout.addWidget(self.splitter)
+        # === 创建紧凑标签栏（默认隐藏）===
+        self.doc_tab_bar = QTabBar()
+        self.doc_tab_bar.setMovable(True)
+        self.doc_tab_bar.setTabsClosable(True)
+        self.doc_tab_bar.setFixedHeight(28)  # ← 关键：紧凑高度
+        self.doc_tab_bar.tabCloseRequested.connect(self.close_document_tab)
+        self.doc_tab_bar.currentChanged.connect(self.on_doc_tab_changed)
+        self.doc_tab_bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.doc_tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
+        self.doc_tab_bar.hide()  # 默认隐藏
+        # === UI 风格统一 ===
+        # 字体：中文微软雅黑 + 英文等宽粗体
+        tab_font = QFont()
+        tab_font.setFamily("Microsoft YaHei, Consolas, Courier New, monospace")
+        tab_font.setPointSize(9)
+        tab_font.setBold(True)  # 粗体增强可读性
+        self.doc_tab_bar.setFont(tab_font)
+        
+        # 样式表：匹配主窗口风格
+        self.doc_tab_bar.setStyleSheet("""
+            QTabBar {
+                background-color: #f8f8f8;
+                border-bottom: 1px solid #e0e0e0;
+            }
+            QTabBar::tab {
+                background: #f8f8f8;
+                color: #111111;
+                padding: 4px 12px;
+                margin: 0px;
+                border: 1px solid #d0d0d0;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                min-width: 60px;
+                height: 22px;
+            }
+            QTabBar::tab:selected {
+                background: #e6f0ff;  /* VS Code 风格蓝色高亮 */
+                color: #0066cc;
+                font-weight: bold;
+                border: 1px solid #a0c0ff;
+                border-bottom: none;
+            }
+            QTabBar::tab:hover {
+                background: #f0f8ff;
+                color: #0066cc;
+            }
+            QTabBar::close-button {
+                image: url(close.png);  /* 可选：自定义关闭图标 */
+                subcontrol-position: right;
+            }
+            QTabBar::close-button:hover {
+                background: #ffcccc;
+                border-radius: 4px;
+            }
+        """)
+        # ===================
+        # 创建中央区域
+        central_widget = QWidget()
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.addWidget(self.doc_tab_bar)
+        central_layout.addWidget(self.splitter)
+        main_layout.addWidget(central_widget)
+        # ===========================
         # === 替换结束 ===
         # State
         self.single_page_mode = False
@@ -2062,24 +2141,40 @@ class TactiReader(QMainWindow):
         # === 新增：记录最后获得焦点的阅读窗格 ===
         self.last_focused_pane_is_left = False  # 默认右窗格
         # === NEW CODE START ===
-        # Auto-open: CLI path first, then last recent file
-        auto_open_path = None
+        # === NEW CODE START ===
+        # Auto-open: CLI path first, then all saved open documents
         if pdf_path and os.path.isfile(pdf_path):
-            auto_open_path = pdf_path
-        elif self.recent_files:
-            auto_open_path = self.recent_files[0]
-
-        if auto_open_path and os.path.isfile(auto_open_path):
-            if auto_open_path.lower().endswith('.tactinote'):
-                self.import_notebook_from_path(auto_open_path)
-            elif auto_open_path.lower().endswith('.pdf'):
-                self.load_pdf(auto_open_path)
+            # 命令行参数优先
+            if pdf_path.lower().endswith('.tactinote'):
+                self.import_notebook_from_path(pdf_path)
+                self.update_ui_text()  # ← 新增：更新标题
+            elif pdf_path.lower().endswith('.pdf'):
+                self.load_pdf(pdf_path)
+                self.update_ui_text()  # ← 新增：更新标题
+        elif self.open_documents:
+            # 恢复所有已保存的文档标签
+            for i, doc_path in enumerate(self.open_documents):
+                if os.path.isfile(doc_path):
+                    if i == 0:  # 加载第一个文档
+                        if doc_path.lower().endswith('.tactinote'):
+                            self.import_notebook_from_path(doc_path)
+                            self.update_ui_text()  # ← 新增：更新标题
+                        elif doc_path.lower().endswith('.pdf'):
+                            self.load_pdf(doc_path)
+                            self.update_ui_text()  # ← 新增：更新标题
+                    # 其他文档已在 open_documents 中，无需额外处理
+        # === NEW CODE END ===
 
     def import_notebook_from_path(self, notebook_path):
         """从给定路径导入笔记本，不弹出文件对话框"""
         if not os.path.isfile(notebook_path):
             return
-
+        # === 关键：将 .tactinote 路径加入 open_documents ===
+        abs_notebook_path = os.path.abspath(notebook_path)
+        if abs_notebook_path not in self.open_documents:
+            self.open_documents.append(abs_notebook_path)
+            self.save_global_config()
+        # =============================================
         try:
 
             
@@ -2102,7 +2197,8 @@ class TactiReader(QMainWindow):
             if self.doc:
                 self.doc.close()
             self.doc = fitz.open(pdf_path)
-            self.pdf_path = pdf_path
+            self.pdf_path = notebook_path  # 保持原始 .tactinote 路径
+            self.notebook_source_path = notebook_path  # 标记笔记本模式
             self.total_pages = len(self.doc)
 
             # 4. 进入笔记本模式
@@ -2126,6 +2222,9 @@ class TactiReader(QMainWindow):
             # ===========================================
         except Exception as e:
             QMessageBox.critical(self, self.tr("Error"), f"{self.tr('Failed to import notebook')}: {e}")
+                # === 关键修复：刷新标签栏 ===
+        self.update_document_tabs()
+            # =========================
     def load_pdf_toc(self):
         """加载 PDF 内置书签（目录）并构建扁平列表"""
         if not self.doc:
@@ -2451,10 +2550,33 @@ class TactiReader(QMainWindow):
         pass
 
     def open_pdf_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, self.tr("Open PDF"), "", self.tr("PDF Files (*.pdf)"))
-        if path:
-            self.load_pdf(path)
-
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Open PDF or Notebook"),
+            "",
+            self.tr("PDF Files (*.pdf);;TactiReader Notebook (*.tactinote)")
+        )
+        if file_path:
+            abs_file_path = os.path.abspath(file_path)
+            
+            # 如果已在打开列表中，切换到对应标签
+            for i, path in enumerate(self.open_documents):
+                if os.path.abspath(path) == abs_file_path:
+                    self.doc_tab_bar.setCurrentIndex(i)
+                    return
+            
+            # 添加到文档列表
+            self.open_documents.append(abs_file_path)
+            self.save_global_config()
+            
+            # 更新标签栏（会自动显示/隐藏）
+            self.update_document_tabs()
+            
+            # 加载文档（必须在 update_document_tabs 之后，因为要设置 currentIndex）
+            if file_path.lower().endswith('.tactinote'):
+                self.import_notebook_from_path(file_path)
+            else:
+                self.load_pdf(file_path)
     # === NEW CODE START ===
     def add_to_recent_files(self, file_path):
         """将文件加入最近列表（去重+置顶），支持 .pdf 和 .tactinote"""
@@ -2543,42 +2665,57 @@ class TactiReader(QMainWindow):
         self.keyPressEvent(event)
     # ===========================================    
     def load_pdf(self, pdf_path):
+        """加载 PDF（增强版）"""
+        abs_path = os.path.abspath(pdf_path)
+        
+        # 添加到文档列表（如果不存在）
+        if abs_path not in self.open_documents:
+            self.open_documents.append(abs_path)
+            self.save_global_config()
+        
+        # 检查是否已经是当前文档
+        current_abs = os.path.abspath(self.pdf_path) if self.pdf_path else None
+        if current_abs == abs_path:
+            # 已经是当前文档，只更新 UI
+            self.update_document_tabs()
+            return
+        # === 仅添加这一行！复用你已有的逻辑 ===
+        self.add_to_recent_files(pdf_path)
+        # ===================================        
+        # === 原有加载逻辑 ===
+        if self.pdf_path:
+            self.save_config()
+        
+        if self.doc:
+            self.doc.close()
+        
         try:
-            if self.doc:
-                self.doc.close()
             self.doc = fitz.open(pdf_path)
             self.pdf_path = pdf_path
             self.total_pages = len(self.doc)
+            
             self.config_file = get_config_path(pdf_path)
-
-            self.right_page = 1
-            self.home_page = 1
-            self.bookmarks = {}
-            self.flip_multiplier = 1
-            self.single_page_mode = False
-            self.left_locked = False
-            self.locked_left_page = 1
-            self.annotations = {}
-            self.page_rotations = {}
-            self.search_highlights = {}  # 清空搜索高亮
-            self.current_search_term = ""
-
             self.load_config()
-            # 强制刷新窗格显示（复用现有逻辑）        
-            self.render_facing()
-            self.load_pdf_toc()          # 加载目录
-            self.refresh_bookmark_panel() # 刷新面板（含 TOC）
+            
+            self.load_pdf_toc()
+            self.refresh_bookmark_panel()
             self.render_facing()
             self.right_pane.setFocus()
-            self.setWindowTitle(f"{self.tr('TactiReader')} - {os.path.basename(pdf_path)}")
             self.update_status()
-            self.refresh_bookmark_panel()
-            # === NEW CODE START ===
-            self.add_to_recent_files(pdf_path)
-            # === NEW CODE END ===            
+            
+            # 更新标签栏（现在 self.pdf_path 已更新）
+            self.update_document_tabs()
+            
         except Exception as e:
-            QMessageBox.critical(self, self.tr("Error"), f"Failed to open PDF:\n{e}")
-
+            QMessageBox.critical(
+                self, 
+                self.tr("Error"), 
+                self.tr("Failed to open PDF:\n{}").format(str(e))
+            )
+            if abs_path in self.open_documents:
+                self.open_documents.remove(abs_path)
+                self.save_global_config()
+                self.update_document_tabs()
     def load_config(self):
         if not self.config_file or not os.path.exists(self.config_file):
             return
@@ -2684,31 +2821,167 @@ class TactiReader(QMainWindow):
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(data, f, indent=2, default=self.serialize_annotations)
+                
         except Exception as e:
             print(f"Save config failed: {e}")
     
     # === NEW CODE START ===
     def save_global_config(self):
-        """保存全局设置（语言、最近文件等）"""
-        global_data = {}
-        if os.path.exists(GLOBAL_CONFIG_FILE):
-            try:
-                with open(GLOBAL_CONFIG_FILE, 'r') as f:
-                    global_data = json.load(f)
-            except:
-                pass
-
-        global_config = global_data.get("global_config", {})
-        global_config["language"] = self.current_lang
-        global_config["recent_files"] = self.recent_files
-        global_data["global_config"] = global_config
-
+        """保存全局配置（包括已打开文档）"""
         try:
+            # 读取现有全局配置
+            global_config = {}
+            if os.path.exists(GLOBAL_CONFIG_FILE):
+                with open(GLOBAL_CONFIG_FILE, 'r') as f:
+                    data = json.load(f)
+                    global_config = data.get("global_config", {})
+            
+            # 更新最近文件（保持原有逻辑）
+            recent_files_clean = [f for f in self.recent_files if os.path.isfile(f)]
+            global_config["recent_files"] = recent_files_clean[-10:]  # 保留最近10个
+            
+            # 新增：保存已打开文档
+        # 保存已打开文档（支持 .pdf 和 .tactinote）
+            open_docs_clean = [f for f in self.open_documents if os.path.isfile(f) and (f.lower().endswith('.pdf') or f.lower().endswith('.tactinote'))]
+            global_config["open_documents"] = open_docs_clean[-10:]  # 保留最近10个
+            
+            # 保存语言设置
+            global_config["language"] = self.current_lang
+            
+            # 写入文件
+            os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
             with open(GLOBAL_CONFIG_FILE, 'w') as f:
-                json.dump(global_data, f, indent=2)
+                json.dump({"global_config": global_config}, f, indent=2)
+                
         except Exception as e:
             print(f"Failed to save global config: {e}")
-    # === NEW CODE END ===
+
+    def update_document_tabs(self):
+        """更新标签栏显示（智能隐藏/显示）"""
+        if not self.open_documents:
+            self.doc_tab_bar.setVisible(False)
+            return
+        
+        # 获取目标索引
+        target_index = -1
+        if self.pdf_path:
+            current_abs = os.path.abspath(self.pdf_path)
+            for i, path in enumerate(self.open_documents):
+                if os.path.abspath(path) == current_abs:
+                    target_index = i
+                    break
+        
+        # 阻塞信号防止递归
+        self.doc_tab_bar.blockSignals(True)
+        
+        # 清空并重建标签
+        while self.doc_tab_bar.count() > 0:
+            self.doc_tab_bar.removeTab(0)
+        
+        for path in self.open_documents:
+            tab_text = os.path.basename(path)
+            self.doc_tab_bar.addTab(tab_text)
+        
+        # 设置正确的当前索引
+        if target_index >= 0 and target_index < len(self.open_documents):
+            self.doc_tab_bar.setCurrentIndex(target_index)
+        elif self.open_documents:
+            self.doc_tab_bar.setCurrentIndex(0)
+            self.pdf_path = self.open_documents[0]  # 同步路径
+        
+        # 恢复信号
+        self.doc_tab_bar.blockSignals(False)
+        
+        # 控制显示/隐藏
+        self.doc_tab_bar.setVisible(len(self.open_documents) > 1)
+                # === 新增：更新窗口标题 ===
+        self.update_ui_text()
+        # ========================
+    def on_doc_tab_changed(self, index):
+        """标签切换时加载对应文档"""
+        if 0 <= index < len(self.open_documents):
+            # === 新增：切换前保存当前 .tactinote ===
+            if getattr(self, 'notebook_source_path', None) is not None:
+                self.save_config()
+                self._flush_notebook_to_source()
+            # ===================================
+            
+            file_path = self.open_documents[index]
+            current_path = self.pdf_path or ""
+            
+            if os.path.abspath(file_path) != os.path.abspath(current_path):
+                if file_path.lower().endswith('.tactinote'):
+                    self.import_notebook_from_path(file_path)
+                else:
+                    self.load_pdf(file_path)
+
+    def close_document_tab(self, index):
+        if not self.open_documents or index >= len(self.open_documents):
+            return
+        
+        closed_path = self.open_documents.pop(index)
+        self.save_global_config()
+        
+        self.doc_tab_bar.blockSignals(True)
+        self.doc_tab_bar.removeTab(index)
+        self.doc_tab_bar.blockSignals(False)
+        
+        if self.open_documents:
+            new_index = min(index, len(self.open_documents) - 1)
+            new_path = self.open_documents[new_index]
+            
+            # === 关键：安全关闭并清空当前文档 ===
+            if self.doc is not None:
+                self.doc.close()
+                self.doc = None  # ← 必须设为 None！
+            self.pdf_path = None
+            self.notebook_source_path = None
+            self.config_file = None
+            # =================================
+            
+            if new_path.lower().endswith('.tactinote'):
+                self.import_notebook_from_path(new_path)
+            else:
+                self.load_pdf(new_path)
+            
+            self.doc_tab_bar.blockSignals(True)
+            self.doc_tab_bar.setCurrentIndex(new_index)
+            self.doc_tab_bar.blockSignals(False)
+        else:
+            if self.doc is not None:
+                self.doc.close()
+                self.doc = None
+            self.pdf_path = None
+            self.notebook_source_path = None
+            self.config_file = None
+            self.total_pages = 0
+            
+            self.left_pane.set_page(None, -1)
+            self.right_pane.set_page(None, -1)
+            self.refresh_bookmark_panel()
+            self.update_status()
+            self.update_ui_text()
+            self.doc_tab_bar.clear()
+        
+        self.doc_tab_bar.setVisible(len(self.open_documents) > 1)
+    def show_tab_context_menu(self, pos):
+        """标签右键菜单"""
+        index = self.doc_tab_bar.tabAt(pos)
+        if index == -1:
+            return
+        
+        menu = QMenu(self)
+        open_in_new_window = menu.addAction(self.tr("Open in New Window"))
+        action = menu.exec_(self.doc_tab_bar.mapToGlobal(pos))
+        
+        if action == open_in_new_window:
+            pdf_path = self.open_documents[index]
+            self.open_in_new_window(pdf_path)
+
+    def open_in_new_window(self, pdf_path):
+        """在新窗口中打开文档"""
+        script_path = sys.argv[0]
+        subprocess.Popen([sys.executable, script_path, pdf_path])
 
     def serialize_annotations(self, obj):
         """辅助函数用于序列化批注（处理QColor对象）"""
@@ -3143,7 +3416,7 @@ class TactiReader(QMainWindow):
 
         try:
             import zipfile
-            with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_STORED) as zf:
                 # 打包 PDF
                 zf.write(self.pdf_path, "document.pdf")
                 # 打包现有的 .json 配置文件，并重命名为 session.json
@@ -3209,13 +3482,26 @@ class TactiReader(QMainWindow):
         if not notebook_path:
             return
 
+        # === 新增多标签支持：先注册到 open_documents ===
+        abs_notebook_path = os.path.abspath(notebook_path)
+        
+        # 避免重复打开
+        for i, path in enumerate(self.open_documents):
+            if os.path.abspath(path) == abs_notebook_path:
+                self.doc_tab_bar.setCurrentIndex(i)
+                return
+        
+        # 添加到文档列表（关键！）
+        self.open_documents.append(abs_notebook_path)
+        self.save_global_config()
+        # ===================================================
+
         try:
             import zipfile
             import shutil
             import hashlib
             
             # 1. 为这个 .tactinote 创建一个唯一的临时工作目录
-            # 使用源文件路径的哈希作为目录名
             hash_id = hashlib.md5(notebook_path.encode('utf-8')).hexdigest()[:12]
             temp_base_dir = os.path.join(CONFIG_DIR, "..", "temp")
             os.makedirs(temp_base_dir, exist_ok=True)
@@ -3231,17 +3517,15 @@ class TactiReader(QMainWindow):
                 zf.extract("session.json", work_dir)
 
             # 3. 正常加载 PDF
-            # 先关闭旧文档
             if self.doc:
                 self.doc.close()
             self.doc = fitz.open(pdf_path)
-            self.pdf_path = pdf_path
+            self.pdf_path = pdf_path  # 注意：这里是临时 PDF 路径
             self.total_pages = len(self.doc)
 
-            # 4. === 关键：进入笔记本模式 ===
+            # 4. 进入笔记本模式
             self.config_file = session_json_path
-            self.notebook_source_path = notebook_path  # 记录源文件
-            # =================================
+            self.notebook_source_path = notebook_path  # ← 这是原始 .tactinote 路径
 
             # 5. 加载配置、TOC等
             self.load_config()
@@ -3250,16 +3534,24 @@ class TactiReader(QMainWindow):
             self.render_facing()
             self.right_pane.setFocus()
             self.update_status()
-            self.update_ui_text() # 更新标题
+            self.update_ui_text()
+
+            # === 更新标签栏（必须在设置完 notebook_source_path 后调用）===
+            self.update_document_tabs()
+            # ===========================================================
 
             self.statusBar().showMessage(
                 self.tr("Notebook imported from: {}").format(os.path.basename(notebook_path)), 3000
             )
-            # === 新增：将 .tactinote 文件加入最近文件列表 ===
             self.add_to_recent_files(notebook_path)
-            # ===========================================
+            
         except Exception as e:
             QMessageBox.critical(self, self.tr("Error"), f"{self.tr('Failed to import notebook')}: {e}")
+            # 如果失败，从 open_documents 中移除
+            if abs_notebook_path in self.open_documents:
+                self.open_documents.remove(abs_notebook_path)
+                self.save_global_config()
+                self.update_document_tabs()
 
     def _flush_notebook_to_source(self):
         """内部方法：将当前工作区的状态打包回源 .tactinote 文件"""
@@ -3279,7 +3571,7 @@ class TactiReader(QMainWindow):
             temp_dir = tempfile.mkdtemp(prefix="tactireader_flush_")
             temp_notebook = os.path.join(temp_dir, "temp.tactinote")
 
-            with zipfile.ZipFile(temp_notebook, 'w', zipfile.ZIP_DEFLATED) as zf:
+            with zipfile.ZipFile(temp_notebook, 'w', zipfile.ZIP_STORED) as zf:
                 zf.write(source_pdf, "document.pdf")
                 zf.write(source_session, "session.json")
 
@@ -3725,9 +4017,12 @@ class MarkdownViewer(QDialog):
         layout.addWidget(self.text_edit)
         self.setLayout(layout)
 if __name__ == "__main__":
+    # === 修复：DPI 设置必须在 QApplication 之前 ===
+    #QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    #QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    # ===========================================
+    
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
     initial_pdf = sys.argv[1] if len(sys.argv) > 1 else None
     window = TactiReader(initial_pdf)
     window.show()
