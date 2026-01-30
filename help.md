@@ -174,6 +174,25 @@ Left and right panes maintain independent zoom, rotation, and pan states.
 
 A notebook is a compressed archive containing the original PDF and a `session.json` file (recording all states).  
 Share a `.tactinote` file to give others an identical reading environment.
+### 🗂️ Multi-Tab Support: Parallel Reading, Zero Interference
+
+TactiReader now supports opening multiple PDFs or `.tactinote` notebooks simultaneously, with each document residing in its own tab and maintaining fully isolated state.
+
+- A new tab is automatically created when opening a document  
+- Tabs can be reordered by dragging; hovering over the right side of a tab reveals a close button for quick dismissal  
+- The content of the active tab is displayed in the main window  
+
+#### Open in New Window (via Right-Click)
+- Right-click on any tab  
+- Select **【Open in New Window】**  
+- This launches an independent TactiReader instance, enabling true side-by-side document comparison  
+
+> This feature is especially useful for:  
+> - Comparing two different versions of a technical standard  
+> - Reading a textbook while referencing solution manuals  
+> - Separating a main document from its appendix or reference guide  
+
+All tabs share the same recent files list, but each preserves its own bookmarks, annotations, Home position, and page offset. Switching tabs instantly restores the complete reading context.
 
 #### Data Persistence
 All data (annotations, bookmarks, rotations, Home, page offsets, etc.) is auto-saved to:  
