@@ -840,6 +840,13 @@ class TacticalPane(QLabel):
                 self.pen_points = [(img_x, img_y)] # 修复：初始化路径起点
                 self.pen_path.moveTo(event.pos())
             elif self.annotation_mode == "text":
+                    # === 关键修复：如果已有文本输入框，先删除它 ===
+                if self.text_input_widget:
+                    self.text_input_widget.deleteLater()
+                    self.text_input_widget = None
+                    self.editing_text_annotation = None
+                    self.temp_annotation = None
+                # =============================================
                 # 对于文本，直接创建文本框
                 screen_x = event.pos().x()
                 screen_y = event.pos().y()
@@ -2559,20 +2566,29 @@ class TactiReader(QMainWindow):
         if file_path:
             abs_file_path = os.path.abspath(file_path)
             
-            # 如果已在打开列表中，切换到对应标签
+            # 如果已在打开列表中，切换到对应标签（会触发 on_doc_tab_changed → 已有保存）
             for i, path in enumerate(self.open_documents):
                 if os.path.abspath(path) == abs_file_path:
                     self.doc_tab_bar.setCurrentIndex(i)
                     return
             
+            # === 关键修复：在加载新文档前，保存当前 .tactinote ===
+            if getattr(self, 'notebook_source_path', None) is not None:
+                try:
+                    self.save_config()
+                    self._flush_notebook_to_source()
+                except Exception as e:
+                    print(f"[WARN] Failed to save current .tactinote before opening new file: {e}")
+            # ===================================================
+            
             # 添加到文档列表
             self.open_documents.append(abs_file_path)
             self.save_global_config()
             
-            # 更新标签栏（会自动显示/隐藏）
+            # 更新标签栏
             self.update_document_tabs()
             
-            # 加载文档（必须在 update_document_tabs 之后，因为要设置 currentIndex）
+            # 加载新文档
             if file_path.lower().endswith('.tactinote'):
                 self.import_notebook_from_path(file_path)
             else:
@@ -2665,6 +2681,7 @@ class TactiReader(QMainWindow):
         self.keyPressEvent(event)
     # ===========================================    
     def load_pdf(self, pdf_path):
+
         """加载 PDF（增强版）"""
         abs_path = os.path.abspath(pdf_path)
         
@@ -2695,6 +2712,18 @@ class TactiReader(QMainWindow):
             self.total_pages = len(self.doc)
             
             self.config_file = get_config_path(pdf_path)
+            # === 关键修复：立即重置所有全局状态变量 ===
+            self.annotations = {}
+            self.bookmarks = {}
+            self.page_rotations = {}
+            self.page_number_offset = 0
+            self.home_page = 1
+            self.flip_multiplier = 1
+            self.single_page_mode = False
+            self.right_page = 1
+            self.left_locked = False
+            self.locked_left_page = 1
+            # =======================================            
             self.load_config()
             
             self.load_pdf_toc()
@@ -2965,18 +2994,27 @@ class TactiReader(QMainWindow):
         
         self.doc_tab_bar.setVisible(len(self.open_documents) > 1)
     def show_tab_context_menu(self, pos):
-        """标签右键菜单"""
+        """显示标签页右键菜单"""
         index = self.doc_tab_bar.tabAt(pos)
         if index == -1:
             return
         
         menu = QMenu(self)
-        open_in_new_window = menu.addAction(self.tr("Open in New Window"))
-        action = menu.exec_(self.doc_tab_bar.mapToGlobal(pos))
         
-        if action == open_in_new_window:
-            pdf_path = self.open_documents[index]
-            self.open_in_new_window(pdf_path)
+        # === 新增：关闭当前标签 ===
+        close_action = QAction(self.tr("Close"), self)
+        close_action.triggered.connect(lambda: self.close_document_tab(index))
+        menu.addAction(close_action)
+        # =======================
+        
+        # 可在此处添加更多选项（如“在新窗口打开”）
+        open_in_new_window_action = QAction(self.tr("Open in New Window"), self)
+        open_in_new_window_action.triggered.connect(
+            lambda: self.open_in_new_window_from_tab(index)
+        )
+        menu.addAction(open_in_new_window_action)
+        
+        menu.exec_(self.doc_tab_bar.mapToGlobal(pos))
 
     def open_in_new_window(self, pdf_path):
         """在新窗口中打开文档"""
@@ -3592,10 +3630,45 @@ class TactiReader(QMainWindow):
                 event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
+        if not event.mimeData().hasUrls():
+            return
+        
         url = event.mimeData().urls()[0]
         path = url.toLocalFile()
-        if path.lower().endswith('.pdf'):
-            self.load_pdf(path)
+        
+        if path.lower().endswith(('.pdf', '.tactinote')):
+            # === 关键修复：拖入前保存当前 .tactinote ===
+            if getattr(self, 'notebook_source_path', None) is not None:
+                try:
+                    self.save_config()
+                    self._flush_notebook_to_source()
+                except Exception as e:
+                    print(f"[WARN] Failed to save current .tactinote before drop: {e}")
+            # =========================================
+            
+            abs_path = os.path.abspath(path)
+            
+            # 检查是否已在打开列表中
+            for i, opened_path in enumerate(self.open_documents):
+                if os.path.abspath(opened_path) == abs_path:
+                    self.doc_tab_bar.setCurrentIndex(i)
+                    event.accept()
+                    return
+            
+            # 添加到文档列表
+            self.open_documents.append(abs_path)
+            self.save_global_config()
+            self.update_document_tabs()  # 这会触发 tabBar 更新并设置 currentIndex
+            
+            # 加载文档
+            if path.lower().endswith('.tactinote'):
+                self.import_notebook_from_path(path)
+            else:
+                self.load_pdf(path)
+            
+            event.accept()
+        else:
+            event.ignore()
 
     def refresh_bookmark_panel(self):
         # === 第一步：清理旧的自定义书签和占位符 ===
