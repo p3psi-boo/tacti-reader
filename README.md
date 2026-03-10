@@ -5,7 +5,7 @@ TactiReader - 战术阅读器
 ▶️ 快速运行
 
 1. 安装依赖  
-      pip install PyMuPDF PyQt5
+      pip install PyMuPDF PyQt5 markdown
    千万不要pip install fitz，否则会变得不幸！
 
 2. 克隆仓库  
@@ -23,7 +23,7 @@ TactiReader - 战术阅读器
    
 
 ✅ 支持 Windows / macOS / Linux  
-📌 要求：Python 3.7+
+📌 要求：Python 3.14+
 
 📦 打包为可执行文件
 

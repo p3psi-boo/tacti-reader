@@ -8,7 +8,7 @@
 - **状态持久化，开箱即用**
 
 ## 🛠 技术栈
-- Python 3.8+
+- Python 3.14+
 - PyQt5
 - PyMuPDF (fitz)
 - markdown

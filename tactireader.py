@@ -1877,6 +1877,8 @@ class TactiReader(QMainWindow):
         # 旋转状态
         self.page_rotations = {}  # 格式: {page_num: rotation_angle}
         self.page_number_offset = 0  # ← 新增：页码数字偏移（逻辑页 = 物理页 + offset）
+        self.restore_left_view = False
+        self.restore_right_view = False
 
         # 批注存储
         self.annotations = {}  # 格式: {page_num: [annotations]}
@@ -2954,12 +2956,15 @@ class TactiReader(QMainWindow):
             self.right_page = 1
             self.left_locked = False
             self.locked_left_page = 1
+            self.restore_left_view = False
+            self.restore_right_view = False
             # =======================================
             self.load_config()
 
             self.load_pdf_toc()
             self.refresh_bookmark_panel()
             self.render_facing()
+            QTimer.singleShot(0, self.apply_initial_view)
             self.right_pane.setFocus()
             self.update_status()
 
@@ -3015,18 +3020,24 @@ class TactiReader(QMainWindow):
 
             if "global_left_scale" in data:
                 self.left_pane.scale_factor = data["global_left_scale"]
+                self.restore_left_view = True
             if "global_left_offset" in data:
                 offset = data["global_left_offset"]
                 self.left_pane.offset = QPointF(offset[0], offset[1])
+                self.restore_left_view = True
             if "global_left_rotation" in data:
                 self.left_pane.rotation = data["global_left_rotation"]
+                self.restore_left_view = True
             if "global_right_scale" in data:
                 self.right_pane.scale_factor = data["global_right_scale"]
+                self.restore_right_view = True
             if "global_right_offset" in data:
                 offset = data["global_right_offset"]
                 self.right_pane.offset = QPointF(offset[0], offset[1])
+                self.restore_right_view = True
             if "global_right_rotation" in data:
                 self.right_pane.rotation = data["global_right_rotation"]
+                self.restore_right_view = True
 
             bookmarks = {}
             for k, v in data.items():
@@ -3084,6 +3095,16 @@ class TactiReader(QMainWindow):
 
         except Exception as e:
             print(f"Save config failed: {e}")
+
+    def apply_initial_view(self):
+        if not self.restore_right_view and self.right_pane.original_pixmap:
+            self.right_pane.reset_view()
+        if (
+            not self.single_page_mode
+            and not self.restore_left_view
+            and self.left_pane.original_pixmap
+        ):
+            self.left_pane.reset_view()
 
     # === NEW CODE START ===
     def save_global_config(self):

@@ -9,7 +9,7 @@
 - **State persistence—ready to use out of the box**
 
 ## 🛠 Tech Stack
-- Python 3.8+
+- Python 3.14+
 - PyQt5
 - PyMuPDF (fitz)
 - markdown
