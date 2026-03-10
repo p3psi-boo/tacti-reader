@@ -1,80 +1,109 @@
-TactiReader - 战术阅读器
+# TactiReader - 战术阅读器
 
-专为快速跳转翻页、工程手册阅读等场景设计的 PDF 阅读器。
+专为长篇 PDF、工程手册、标准文档、教材查阅设计的键盘优先阅读器，重点解决高频跳转、对照阅读、批注记录和跨章节关联的问题。
 
-▶️ 快速运行
+## 快速开始
 
-1. 安装依赖  
-      pip install PyMuPDF PyQt5 markdown
-   千万不要pip install fitz，否则会变得不幸！
+1. 安装依赖
 
-2. 克隆仓库  
-      git clone https://gitee.com/Mr_newbee666/tacti-reader.git
-   cd tacti-reader
-   
+```bash
+pip install PyMuPDF PyQt5 markdown
+```
 
-3. 启动程序  
-      python tactireader.py
-   
+不要安装 `fitz` 这个同名包，TactiReader 依赖的是 `PyMuPDF`。
 
-4. （可选）直接打开文件  
-      python tactireader.py your_file.pdf
-   python tactireader.py your_notebook.tactinote
-   
+2. 克隆仓库
 
-✅ 支持 Windows / macOS / Linux  
-📌 要求：Python 3.14+
+```bash
+git clone https://gitee.com/Mr_newbee666/tacti-reader.git
+cd tacti-reader
+```
 
-📦 打包为可执行文件
+3. 启动程序
 
-Windows
+```bash
+python tactireader.py
+```
+
+4. 直接打开文件
+
+```bash
+python tactireader.py your_file.pdf
+python tactireader.py your_notebook.tactinote
+```
+
+## 功能特点
+
+- 双页对照阅读，左页可锁定为参考页
+- `Q` 到 `P` 十键瞬时书签，适合盲操切换
+- 支持逻辑页码校准、快速跳页、全文搜索
+- 支持批注、导出 PDF、导出 `.tactinote` 笔记本
+- 支持多标签页和新窗口并行阅读
+
+## 文档索引
+
+- 文档目录：[`docs/README.md`](docs/README.md)
+- 中文使用指南：[`docs/help_zh.md`](docs/help_zh.md)
+- English user guide: [`docs/help.md`](docs/help.md)
+- 中文关于页：[`docs/about_zh.md`](docs/about_zh.md)
+- English about page: [`docs/about.md`](docs/about.md)
+- English overview: [`docs/README.en.md`](docs/README.en.md)
+- 架构优化计划：[`docs/PLAN.md`](docs/PLAN.md)
+
+## 打包
+
+支持 Windows / macOS / Linux，要求 Python 3.14+。
+
+Windows:
+
+```powershell
 pip install pyinstaller
 pyinstaller --windowed --name "TactiReader" --icon=tactireader.ico ^
   --add-data "tactireader.png;." ^
-  --add-data "help.md;." ^
-  --add-data "about.md;." ^
-  --add-data "help_zh.md;." ^
-  --add-data "about_zh.md;." ^
+  --add-data "docs/help.md;docs" ^
+  --add-data "docs/about.md;docs" ^
+  --add-data "docs/help_zh.md;docs" ^
+  --add-data "docs/about_zh.md;docs" ^
   tactireader.py
+```
 
-生成的 dist/TactiReader/TactiReader.exe 即可分发使用。
+macOS:
 
-macOS
+```bash
 pip install pyinstaller
 pyinstaller --windowed --name "TactiReader" \
   --add-data "tactireader.png:." \
-  --add-data "help.md:." \
-  --add-data "about.md:." \
-  --add-data "help_zh.md:." \
-  --add-data "about_zh.md:." \
+  --add-data "docs/help.md:docs" \
+  --add-data "docs/about.md:docs" \
+  --add-data "docs/help_zh.md:docs" \
+  --add-data "docs/about_zh.md:docs" \
   tactireader.py
+```
 
-生成 dist/TactiReader.app，双击即可运行。
+Linux:
 
-Linux
+```bash
 pip install pyinstaller
 pyinstaller --windowed --name "TactiReader" \
   --add-data "tactireader.png:." \
-  --add-data "help.md:." \
-  --add-data "about.md:." \
-  --add-data "help_zh.md:." \
-  --add-data "about_zh.md:." \
+  --add-data "docs/help.md:docs" \
+  --add-data "docs/about.md:docs" \
+  --add-data "docs/help_zh.md:docs" \
+  --add-data "docs/about_zh.md:docs" \
   tactireader.py
+```
 
-生成 dist/TactiReader/TactiReader 可执行文件。
+macOS/Linux 使用 `:` 分隔路径，Windows 使用 `;`。
 
-💡 注意：macOS/Linux 使用 : 分隔路径，Windows 使用 ;。命令中已分别处理。
+## 项目结构
 
-📂 文件说明
-文件   说明
-tactireader.py   主程序入口
+- `tactireader.py`: 当前主程序入口
+- `main.py`: 包模式入口
+- `tacti_reader/`: 已拆分出的模块化代码
+- `docs/`: 帮助文档、关于页、英文说明和规划文档
+- `tactireader.png`: 应用图标
+- `tactireader.ico`: Windows 图标
 
-tactireader.ico   程序图标（仅 Windows 使用）
+## 说明
 
-tactireader.png   应用图标（用于界面）
-
-help.md, help_zh.md   英文/中文帮助文档
-
-about.md, about_zh.md   关于页面内容
-
-💡 TactiReader —— 让每一次阅读都成为战术行动。
+TactiReader 的目标不是替代通用 PDF 阅读器，而是为高密度知识跳转和对照阅读提供更低摩擦的工作流。

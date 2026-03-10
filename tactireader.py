@@ -1530,8 +1530,8 @@ class TactiReader(QMainWindow):
                 "Reset Current Page (X)": "重置当前页面 (X)",
                 "Center Splitter and Reset (Ctrl+X)": "居中分隔条并重置 (Ctrl+X)",
                 "Clear All Page Rotations (Ctrl+Shift+X)": "清除全文档旋转 (Ctrl+Shift+X)",
-                "help.md": "help_zh.md",
-                "about.md": "about_zh.md",
+                "docs/help.md": "docs/help_zh.md",
+                "docs/about.md": "docs/about_zh.md",
                 # === 导航菜单 ===
                 "Navigation": "导航",
                 "Go to Page... (G)": "跳转到页码... (G)",
@@ -4456,11 +4456,11 @@ class TactiReader(QMainWindow):
         self.statusBar().showMessage(f"🔤 Text Selection Mode: {status}", 2000)
 
     def show_help(self):
-        viewer = MarkdownViewer(self.tr("Help"), self.tr("help.md"), self)
+        viewer = MarkdownViewer(self.tr("Help"), self.tr("docs/help.md"), self)
         viewer.exec_()
 
     def show_about(self):
-        viewer = MarkdownViewer(self.tr("About"), self.tr("about.md"), self)
+        viewer = MarkdownViewer(self.tr("About"), self.tr("docs/about.md"), self)
         viewer.exec_()
 
     def closeEvent(self, event):
